@@ -1,0 +1,80 @@
+#!/bin/bash
+
+# Enable strict mode for better error handling and script behavior
+# -e: Exit immediately if a command exits with a non-zero status
+# -u: Treat unset variables as an error when substituting
+# -o pipefail: Return value of a pipeline is the status of the last command to exit with a non-zero status
+set -euo pipefail
+
+# Define the path to the Cursor AppImage
+# Using a fixed path ensures consistency across different invocations
+CURSOR_DIR="/home/draeician/.local/bin"
+CURSOR_SYMLINK="$CURSOR_DIR/cursor.latest"
+
+# Define the log file paths
+# Storing logs in the user's home directory ensures write permissions and keeps system logs clean
+LOG_DIR="$HOME/.local/logs/cursor"
+STDOUT_LOG="$LOG_DIR/stdout.log"
+STDERR_LOG="$LOG_DIR/stderr.log"
+
+# Ensure the log directory exists
+# This prevents errors when trying to write logs later
+mkdir -p "$LOG_DIR"
+
+# Function to check if Cursor is already running
+# This prevents multiple instances of Cursor from being launched
+is_cursor_running() {
+    pgrep -f "$CURSOR_SYMLINK" >/dev/null
+}
+
+# Function to rotate log files
+# This prevents log files from growing too large and consuming excessive disk space
+rotate_logs() {
+    local log_file="$1"
+    local max_size=$((5 * 1024 * 1024))  # 5MB
+    if [[ -f "$log_file" && $(stat -c%s "$log_file") -gt $max_size ]]; then
+        mv "$log_file" "${log_file}.old"
+    fi
+}
+
+# Function to update Cursor symlink
+# This ensures the script always uses the latest Cursor AppImage
+update_cursor_symlink() {
+    local latest_appimage=$(ls -t "$CURSOR_DIR"/cursor-*.AppImage 2>/dev/null | head -n1)
+    if [[ -z "$latest_appimage" ]]; then
+        echo "Error: No Cursor AppImage found in $CURSOR_DIR" >&2
+        exit 1
+    fi
+
+    if [[ ! -L "$CURSOR_SYMLINK" || "$(readlink -f "$CURSOR_SYMLINK")" != "$(readlink -f "$latest_appimage")" ]]; then
+        ln -sf "$latest_appimage" "$CURSOR_SYMLINK"
+        echo "Updated Cursor symlink to: $latest_appimage"
+    fi
+}
+
+# Update symlink if necessary
+update_cursor_symlink
+
+# Check if Cursor is already running
+# If it is, focus the existing window instead of launching a new instance
+if is_cursor_running; then
+    echo "Cursor is already running. Exiting."
+    exit 0
+fi
+
+# Rotate log files if necessary
+# This is done before starting Cursor to ensure we have clean log files
+rotate_logs "$STDOUT_LOG"
+rotate_logs "$STDERR_LOG"
+
+# Run the Cursor AppImage in the background with output redirected to log files
+# "$@" passes all command-line arguments to Cursor, allowing for flexibility in how it's launched
+# Redirecting output to log files keeps the terminal clean and provides a record for troubleshooting
+"$CURSOR_SYMLINK" "$@" > >(tee -a "$STDOUT_LOG") 2> >(tee -a "$STDERR_LOG" >&2)
+
+# Provide feedback to the user about where to find logs
+# This is helpful for troubleshooting if something goes wrong
+echo "Cursor started. Logs available at:"
+echo "  Stdout: $STDOUT_LOG"
+echo "  Stderr: $STDERR_LOG"
+
