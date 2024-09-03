@@ -68,13 +68,26 @@ rotate_logs "$STDOUT_LOG"
 rotate_logs "$STDERR_LOG"
 
 # Run the Cursor AppImage in the background with output redirected to log files
-# "$@" passes all command-line arguments to Cursor, allowing for flexibility in how it's launched
-# Redirecting output to log files keeps the terminal clean and provides a record for troubleshooting
-"$CURSOR_SYMLINK" "$@" > >(tee -a "$STDOUT_LOG") 2> >(tee -a "$STDERR_LOG" >&2)
+# Use nohup to allow the process to continue running even if the terminal is closed
+# Redirect all output to log files and run in the background
+nohup "$CURSOR_SYMLINK" "$@" > "$STDOUT_LOG" 2> "$STDERR_LOG" </dev/null &
 
-# Provide feedback to the user about where to find logs
-# This is helpful for troubleshooting if something goes wrong
-echo "Cursor started. Logs available at:"
+# Capture the PID of the background process
+CURSOR_PID=$!
+
+# Provide feedback to the user about where to find logs and the PID
+echo "Cursor started with PID $CURSOR_PID. Logs available at:"
 echo "  Stdout: $STDOUT_LOG"
 echo "  Stderr: $STDERR_LOG"
+
+# Optional: Wait a short time to check if the process is still running
+sleep 2
+if kill -0 $CURSOR_PID 2>/dev/null; then
+    echo "Cursor is running in the background."
+else
+    echo "Warning: Cursor may have failed to start. Check the logs for details."
+fi
+
+# Exit the script to fully detach from the terminal
+exit 0
 
