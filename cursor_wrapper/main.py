@@ -33,7 +33,7 @@ class CursorWrapper:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         
         # Cursor download URLs and configuration
-        self.cursor_download_url = "https://downloader.cursor.sh/linux/appImage/x64"
+        self.cursor_download_url = "https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=stable"
         self.cursor_filename = "cursor-latest.AppImage"
     
     def is_cursor_running(self) -> bool:
@@ -94,13 +94,30 @@ class CursorWrapper:
         """Download the latest Cursor AppImage."""
         print("Downloading latest Cursor AppImage...")
         
+        temp_path = None
         try:
+            # First, get the download URL from the API
+            print("Fetching download URL from Cursor API...")
+            response = requests.get(self.cursor_download_url)
+            response.raise_for_status()
+            
+            # Parse the JSON response to get the actual download URL
+            download_data = response.json()
+            actual_download_url = download_data.get('downloadUrl')
+            
+            if not actual_download_url:
+                print("Error: Could not find download URL in API response", file=sys.stderr)
+                sys.exit(1)
+            
+            print(f"Download URL: {actual_download_url}")
+            
             # Create a temporary file for the download
             with tempfile.NamedTemporaryFile(delete=False, suffix='.AppImage') as temp_file:
                 temp_path = Path(temp_file.name)
             
             # Download the file
-            response = requests.get(self.cursor_download_url, stream=True)
+            print("Downloading AppImage...")
+            response = requests.get(actual_download_url, stream=True)
             response.raise_for_status()
             
             total_size = int(response.headers.get('content-length', 0))
@@ -124,12 +141,12 @@ class CursorWrapper:
             
         except requests.RequestException as e:
             print(f"Error downloading Cursor AppImage: {e}", file=sys.stderr)
-            if temp_path.exists():
+            if temp_path and temp_path.exists():
                 temp_path.unlink()
             sys.exit(1)
-        except OSError as e:
-            print(f"Error setting file permissions: {e}", file=sys.stderr)
-            if temp_path.exists():
+        except (OSError, KeyError, ValueError) as e:
+            print(f"Error processing download: {e}", file=sys.stderr)
+            if temp_path and temp_path.exists():
                 temp_path.unlink()
             sys.exit(1)
     
